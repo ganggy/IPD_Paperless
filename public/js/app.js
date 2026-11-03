@@ -3778,6 +3778,7 @@ function updateAuthUI() {
     
     let roleText = state.currentUser.groupname || 'เจ้าหน้าที่';
     if (state.currentUser.licenseno) roleText += ` (ว. ${state.currentUser.licenseno})`;
+    if (state.currentUser.auth_method === 'provider_id') roleText += ' • 🏥 Provider ID';
     if (userRoleLabel) userRoleLabel.textContent = roleText;
 
     if (userRoleIcon) {

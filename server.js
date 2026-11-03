@@ -222,6 +222,354 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // -------------------------------------------------------------
+// 0.1b API: MOPH Health ID & Provider ID OAuth2 Authentication
+// -------------------------------------------------------------
+const HEALTH_ID_CLIENT_ID = process.env.HEALTH_ID_CLIENT_ID || '01a0faf5-2888-758a-a1c3-d885143cf2e4';
+const HEALTH_ID_CLIENT_SECRET = process.env.HEALTH_ID_CLIENT_SECRET || 'a92c05aeec078f4cd9da04d34dd3e5ebe1ea0942';
+const PROVIDER_ID_CLIENT_ID = process.env.PROVIDER_ID_CLIENT_ID || '68fdef16-2121-451b-952c-07a9aaf4d1f0';
+const PROVIDER_ID_CLIENT_SECRET = process.env.PROVIDER_ID_CLIENT_SECRET || '6bFJzxrV1SnBwEwphUK9vcAPXiWFlzX8';
+
+function getProviderRedirectUri(req) {
+  if (process.env.MOPH_REDIRECT_URI) return process.env.MOPH_REDIRECT_URI;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.get('host') || `192.168.2.202:${PORT}`;
+  return `${proto}://${host}/api/auth/provider-id/callback`;
+}
+
+function buildMophAuthUrl(req) {
+  const redirectUri = getProviderRedirectUri(req);
+  const params = new URLSearchParams({
+    client_id: HEALTH_ID_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+  });
+  return `https://moph.id.th/oauth/redirect?${params.toString()}`;
+}
+
+app.get(['/api/auth/provider-id/login', '/api/auth/provider-id'], (req, res) => {
+  const authUrl = buildMophAuthUrl(req);
+  res.redirect(authUrl);
+});
+
+app.get('/api/auth/provider-id/url', (req, res) => {
+  res.json({
+    ok: true,
+    url: buildMophAuthUrl(req),
+    redirect_uri: getProviderRedirectUri(req),
+  });
+});
+
+function renderProviderCallbackHtml({ ok, user, error }) {
+  const payload = JSON.stringify({ ok, user: user || null, error: error || null })
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e');
+  return `<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>กำลังเข้าสู่ระบบด้วย Provider ID - IPD Paperless</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: 'Sarabun', sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #064e3b 50%, #0284c7 100%);
+      color: #fff;
+    }
+    .card {
+      background: rgba(255,255,255,0.97); color: #0f172a; padding: 2.2rem 2rem;
+      border-radius: 20px; box-shadow: 0 25px 50px rgba(0,0,0,0.35);
+      max-width: 430px; width: 90%; text-align: center;
+    }
+    .spinner {
+      width: 48px; height: 48px; border: 4px solid #d1fae5; border-top-color: #059669;
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .err-box {
+      background: #fee2e2; border: 1px solid #f87171; color: #991b1b;
+      padding: 0.9rem; border-radius: 12px; margin: 1rem 0; font-size: 0.92rem;
+    }
+    .btn {
+      display: inline-block; margin-top: 0.75rem; padding: 0.65rem 1.5rem;
+      background: #0284c7; color: #fff; text-decoration: none; border-radius: 10px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="card" id="statusCard">
+    <div class="spinner" id="loadingSpinner"></div>
+    <h3 id="statusTitle" style="margin: 0 0 0.4rem; font-size: 1.25rem;">กำลังยืนยันตัวตนด้วย Provider ID...</h3>
+    <p id="statusDesc" style="margin: 0; color: #64748b; font-size: 0.92rem;">ระบบกำลังเชื่อมโยงข้อมูลบุคลากรกับฐานข้อมูล HOSxP</p>
+  </div>
+  <script>
+    (function() {
+      var result = ${payload};
+      if (result.ok && result.user) {
+        try {
+          localStorage.setItem('ipd_user', JSON.stringify(result.user));
+        } catch (e) {}
+        document.getElementById('statusTitle').textContent = '✅ เข้าสู่ระบบสำเร็จ';
+        document.getElementById('statusDesc').textContent = 'ยินดีต้อนรับ ' + (result.user.name || result.user.loginname);
+        setTimeout(function() {
+          window.location.replace('/');
+        }, 400);
+      } else {
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('statusTitle').textContent = '⚠️ ไม่สามารถเข้าสู่ระบบด้วย Provider ID';
+        document.getElementById('statusDesc').innerHTML =
+          '<div class="err-box">' + (result.error || 'เกิดข้อผิดพลาดในการตรวจสอบสิทธิ์') + '</div>' +
+          '<a class="btn" href="/">กลับสู่หน้าเข้าสู่ระบบ</a>';
+      }
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+app.get('/api/auth/provider-id/callback', async (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  try {
+    const { code, error, error_description } = req.query;
+    if (error) {
+      return res.status(400).send(renderProviderCallbackHtml({
+        ok: false,
+        error: `หมอพร้อมปฏิเสธการเข้าสู่ระบบ: ${error_description || error}`,
+      }));
+    }
+    if (!code) {
+      return res.status(400).send(renderProviderCallbackHtml({
+        ok: false,
+        error: 'ไม่พบรหัสยืนยันตัวตน (Authorization Code) จากหมอพร้อม Health ID',
+      }));
+    }
+
+    const redirectUri = getProviderRedirectUri(req);
+    console.log('[Provider ID] Step 1: Exchanging code with Health ID... redirect_uri=', redirectUri);
+
+    // Step 1: Exchange authorization code for Health ID access_token
+    const tokenParams = new URLSearchParams();
+    tokenParams.append('grant_type', 'authorization_code');
+    tokenParams.append('code', String(code));
+    tokenParams.append('redirect_uri', redirectUri);
+    tokenParams.append('client_id', HEALTH_ID_CLIENT_ID);
+    tokenParams.append('client_secret', HEALTH_ID_CLIENT_SECRET);
+
+    const healthTokenRes = await fetch('https://moph.id.th/api/v1/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenParams.toString(),
+    });
+    const healthTokenData = await healthTokenRes.json();
+    const healthAccessToken = healthTokenData?.data?.access_token || healthTokenData?.access_token;
+
+    if (!healthAccessToken) {
+      console.error('[Provider ID] Step 1 failed:', healthTokenData);
+      return res.status(401).send(renderProviderCallbackHtml({
+        ok: false,
+        error: healthTokenData?.message || healthTokenData?.error_description || 'ไม่สามารถขอ Access Token จาก Health ID ได้',
+      }));
+    }
+
+    // Step 2: Exchange Health ID token for Provider ID access_token
+    console.log('[Provider ID] Step 2: Exchanging Health ID token for Provider ID token...');
+    const providerTokenRes = await fetch('https://provider.id.th/api/v1/services/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: PROVIDER_ID_CLIENT_ID,
+        secret_key: PROVIDER_ID_CLIENT_SECRET,
+        token_by: 'Health ID',
+        token: healthAccessToken,
+      }),
+    });
+    const providerTokenData = await providerTokenRes.json();
+    const providerAccessToken = providerTokenData?.data?.access_token || providerTokenData?.access_token;
+
+    if (!providerAccessToken) {
+      console.error('[Provider ID] Step 2 failed:', providerTokenData);
+      return res.status(401).send(renderProviderCallbackHtml({
+        ok: false,
+        error: providerTokenData?.message || 'ไม่สามารถขอ Provider ID Token ได้',
+      }));
+    }
+
+    // Step 3: Fetch Provider ID Profile
+    console.log('[Provider ID] Step 3: Fetching Provider ID profile...');
+    const profileRes = await fetch('https://provider.id.th/api/v1/services/profile', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${providerAccessToken}`,
+        'client-id': PROVIDER_ID_CLIENT_ID,
+        'secret-key': PROVIDER_ID_CLIENT_SECRET,
+      },
+    });
+    const profileJson = await profileRes.json();
+    console.log('[Provider ID] Profile response:', JSON.stringify(profileJson, null, 2));
+
+    const pData = profileJson?.data || profileJson;
+    if (!pData || (!pData.hash_cid && !pData.provider_id && !pData.name_th)) {
+      return res.status(401).send(renderProviderCallbackHtml({
+        ok: false,
+        error: 'ไม่พบข้อมูลบุคลากรจากระบบ Provider ID',
+      }));
+    }
+
+    const hashCid = pData.hash_cid ? String(pData.hash_cid).trim().toLowerCase() : '';
+    const firstNameTh = pData.firstname_th ? String(pData.firstname_th).trim() : '';
+    const lastNameTh = pData.lastname_th ? String(pData.lastname_th).trim() : '';
+    const nameTh = pData.name_th ? String(pData.name_th).trim() : `${firstNameTh} ${lastNameTh}`.trim();
+    const titleTh = pData.special_title_th || pData.title_th || '';
+    const orgList = Array.isArray(pData.organization) ? pData.organization : [];
+    const primaryOrg = orgList.find(o => String(o.hcode) === '11101') || orgList[0] || {};
+    const orgPosition = primaryOrg.position || primaryOrg.position_type || '';
+    const orgLicense = primaryOrg.license_id || '';
+
+    // Step 4: Match against HOSxP `opduser` / `doctor`
+    let matchedUser = null;
+
+    // 4.1 Match by SHA-256 of CID in opduser or doctor
+    if (hashCid) {
+      const cidRows = await query(`
+        SELECT u.loginname, u.name, u.doctorcode, u.groupname, u.department, u.cid, u.account_disable
+        FROM opduser u
+        LEFT JOIN doctor d ON u.doctorcode = d.code
+        WHERE (u.account_disable != 'Y' OR u.account_disable IS NULL)
+          AND (
+            LOWER(SHA2(REPLACE(REPLACE(TRIM(u.cid), '-', ''), ' ', ''), 256)) = ?
+            OR LOWER(SHA2(REPLACE(REPLACE(TRIM(d.cid), '-', ''), ' ', ''), 256)) = ?
+          )
+        ORDER BY CASE WHEN u.doctorcode IS NOT NULL AND u.doctorcode != '' THEN 0 ELSE 1 END
+        LIMIT 1
+      `, [hashCid, hashCid]);
+      if (cidRows.length > 0) {
+        matchedUser = cidRows[0];
+      }
+    }
+
+    // 4.2 Fallback: Match by Medical/Nursing license_id in doctor -> opduser
+    if (!matchedUser && orgLicense) {
+      const licRows = await query(`
+        SELECT u.loginname, u.name, u.doctorcode, u.groupname, u.department, u.cid, u.account_disable
+        FROM opduser u
+        JOIN doctor d ON u.doctorcode = d.code
+        WHERE (u.account_disable != 'Y' OR u.account_disable IS NULL)
+          AND (d.licenseno = ? OR REPLACE(d.licenseno, 'ว.', '') = ?)
+        LIMIT 1
+      `, [orgLicense, orgLicense.replace(/^ว\.?\s*/, '')]);
+      if (licRows.length > 0) {
+        matchedUser = licRows[0];
+      }
+    }
+
+    // 4.3 Fallback: Match by Thai First Name + Last Name in opduser
+    if (!matchedUser && firstNameTh && lastNameTh) {
+      const nameRows = await query(`
+        SELECT u.loginname, u.name, u.doctorcode, u.groupname, u.department, u.cid, u.account_disable
+        FROM opduser u
+        WHERE (u.account_disable != 'Y' OR u.account_disable IS NULL)
+          AND u.name LIKE ? AND u.name LIKE ?
+        ORDER BY CASE WHEN u.doctorcode IS NOT NULL AND u.doctorcode != '' THEN 0 ELSE 1 END
+        LIMIT 1
+      `, [`%${firstNameTh}%`, `%${lastNameTh}%`]);
+      if (nameRows.length > 0) {
+        matchedUser = nameRows[0];
+      }
+    }
+
+    // 4.4 Fallback: Match in `doctor` table by CID or Name if not linked in opduser yet
+    let doctorInfo = null;
+    if (matchedUser && matchedUser.doctorcode) {
+      const docs = await query(`
+        SELECT code, name, licenseno, jobposition, spclty, pname, fname, lname
+        FROM doctor WHERE code = ? LIMIT 1
+      `, [matchedUser.doctorcode]);
+      if (docs.length > 0) doctorInfo = docs[0];
+    } else if (!matchedUser && hashCid) {
+      const docs = await query(`
+        SELECT code, name, licenseno, jobposition, spclty, pname, fname, lname
+        FROM doctor
+        WHERE LOWER(SHA2(REPLACE(REPLACE(TRIM(cid), '-', ''), ' ', ''), 256)) = ?
+        LIMIT 1
+      `, [hashCid]);
+      if (docs.length > 0) doctorInfo = docs[0];
+    }
+
+    if (!matchedUser && !doctorInfo && !primaryOrg.hcode) {
+      return res.status(403).send(renderProviderCallbackHtml({
+        ok: false,
+        error: `ไม่พบบัญชีผู้ใช้ของ "${titleTh}${nameTh}" ในระบบ HOSxP (ตาราง opduser) กรุณาตรวจสอบเลขบัตรประชาชน 13 หลักใน HOSxP`,
+      }));
+    }
+
+    const u = matchedUser || {
+      loginname: (doctorInfo && doctorInfo.code) || pData.provider_id || 'provider_user',
+      name: (doctorInfo && doctorInfo.name) || `${titleTh}${nameTh}`.trim(),
+      doctorcode: doctorInfo ? doctorInfo.code : null,
+      groupname: orgPosition || 'เจ้าหน้าที่ (Provider ID)',
+      department: primaryOrg.hname_th || 'โรงพยาบาลโคกศรีสุพรรณ',
+    };
+
+    const group = `${u.groupname || ''} ${orgPosition}`.toLowerCase();
+    const nameStr = `${u.name || ''} ${titleTh}${nameTh} ${doctorInfo ? doctorInfo.name : ''}`;
+    const isNurse = group.includes('พยาบาล') || group.includes('nurse');
+    const isDoctor = !isNurse && (
+      group.includes('แพทย์') ||
+      group.includes('doctor') ||
+      nameStr.includes('นพ.') ||
+      nameStr.includes('พญ.') ||
+      nameStr.includes('นายแพทย์') ||
+      nameStr.includes('แพทย์หญิง')
+    );
+    const isAdmin = (
+      group.includes('ผู้ดูแลระบบ') ||
+      group.includes('admin') ||
+      group.includes('ดูแลระบบ') ||
+      group.includes('นักวิชาการคอมพิวเตอร์') ||
+      group.includes('เทคโนโลยีสารสนเทศ') ||
+      u.loginname === 'war12oc' ||
+      u.loginname === 'flook' ||
+      u.loginname === 'admin'
+    );
+
+    // Check saved signature
+    const sigPath = path.join(SIGNATURES_DIR, `${path.basename(u.loginname)}.png`);
+    let signatureUrl = null;
+    if (fs.existsSync(sigPath)) {
+      const b64 = fs.readFileSync(sigPath, 'base64');
+      signatureUrl = `data:image/png;base64,${b64}`;
+    }
+
+    const sessionUser = {
+      loginname: u.loginname,
+      name: u.name || `${titleTh}${nameTh}`.trim(),
+      doctorcode: u.doctorcode || (doctorInfo ? doctorInfo.code : null),
+      licenseno: (doctorInfo && doctorInfo.licenseno) || orgLicense || null,
+      groupname: u.groupname || orgPosition || (isDoctor ? 'แพทย์' : 'เจ้าหน้าที่'),
+      department: u.department || orgPosition || '',
+      is_doctor: isDoctor,
+      is_nurse: isNurse,
+      is_admin: isAdmin,
+      signature_url: signatureUrl,
+      provider_id: pData.provider_id || null,
+      auth_method: 'provider_id',
+    };
+
+    console.log(`[Provider ID] Login success for user: ${sessionUser.loginname} (${sessionUser.name})`);
+    return res.send(renderProviderCallbackHtml({ ok: true, user: sessionUser }));
+  } catch (err) {
+    console.error('[Provider ID] Callback error:', err);
+    return res.status(500).send(renderProviderCallbackHtml({
+      ok: false,
+      error: `เกิดข้อผิดพลาดในการเชื่อมต่อระบบ Provider ID: ${err.message}`,
+    }));
+  }
+});
+
+// -------------------------------------------------------------
 // 0.2 API: Admin User Management & Password Reset
 // -------------------------------------------------------------
 app.get('/api/admin/users', async (req, res) => {

@@ -142,7 +142,20 @@
         <div class="login-form-pane">
           <div class="login-form-header">
             <h3 class="login-form-title">เข้าสู่ระบบ (Sign In)</h3>
-            <p class="login-form-subtitle">กรุณาระบุชื่อผู้ใช้และรหัสผ่านจากระบบ HOSxP</p>
+            <p class="login-form-subtitle">ยืนยันตัวตนด้วยหมอพร้อม Provider ID หรือบัญชี HOSxP</p>
+          </div>
+
+          <!-- MOPH Provider ID (Health ID) OAuth2 Login Button -->
+          <div style="margin-bottom: 1.35rem;">
+            <a href="/api/auth/provider-id/login" id="providerIdMainBtn" onclick="this.innerHTML='<span>⏳ กำลังเชื่อมต่อไปยังหมอพร้อม Provider ID...</span>'; this.style.opacity='0.85';" style="display: flex; align-items: center; justify-content: center; gap: 0.65rem; width: 100%; padding: 0.9rem 1.2rem; border-radius: 14px; background: linear-gradient(135deg, #059669 0%, #047857 50%, #065f46 100%); color: #ffffff; font-weight: 700; font-size: 0.98rem; text-decoration: none; box-shadow: 0 8px 20px rgba(5, 150, 105, 0.28); border: 1px solid #10b981; transition: all 0.2s ease;">
+              <span style="font-size: 1.25rem;">🏥</span>
+              <span>เข้าสู่ระบบด้วย Provider ID (หมอพร้อม)</span>
+            </a>
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 1.2rem; color: #94a3b8; font-size: 0.78rem; font-weight: 600;">
+              <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+              <span>หรือใช้ชื่อผู้ใช้และรหัสผ่าน HOSxP</span>
+              <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+            </div>
           </div>
 
           <form id="mainLoginForm">
@@ -899,6 +912,19 @@
 
       <form id="loginForm">
         <div class="modal-body" style="padding: 1.5rem;">
+          <!-- Provider ID Quick Login in Modal -->
+          <div style="margin-bottom: 1.15rem;">
+            <a href="/api/auth/provider-id/login" onclick="this.innerHTML='⏳ กำลังเชื่อมต่อไปยังหมอพร้อม Provider ID...'; this.style.opacity='0.85';" style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; padding: 0.75rem 1rem; border-radius: 10px; background: linear-gradient(135deg, #059669, #047857); color: #ffffff; font-weight: 700; font-size: 0.92rem; text-decoration: none; box-shadow: 0 6px 15px rgba(5, 150, 105, 0.25);">
+              <span>🏥</span>
+              <span>เข้าสู่ระบบด้วย Provider ID (หมอพร้อม)</span>
+            </a>
+            <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 1rem; color: #94a3b8; font-size: 0.75rem; font-weight: 600;">
+              <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+              <span>หรือใช้บัญชี HOSxP</span>
+              <div style="flex: 1; height: 1px; background: #e2e8f0;"></div>
+            </div>
+          </div>
+
           <div class="form-group" style="margin-bottom: 1.1rem;">
             <label style="font-weight: 600; font-size: 0.88rem; color: var(--text-main); margin-bottom: 0.35rem; display: block;">
               👤 ชื่อผู้ใช้ HOSxP (Username):
