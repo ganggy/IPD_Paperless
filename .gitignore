@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Environment & Secrets
+.env
+.env.*
+deploy_quick.js
+deploy_remote.js
+add_to_portal.js
+check_firewall.js
+check_portal.js
+view_portal_data.js
+test_*.js
+
+# Patient & Staff runtime data (PHI / Signatures)
+data/signatures/
+data/approvals/
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log
